@@ -24,3 +24,5 @@
 * **GitHub Account** [[https://github.com/signup?source=login](https://github.com/signup?source=login)]** **
 
 ---
+## Task Manager App
+Added note for TASK-7 testing Jira integration.
