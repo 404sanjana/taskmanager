@@ -1,4 +1,5 @@
 // config/db.js
+//v2
 const mongoose = require("mongoose");
 
 // Set strictQuery explicitly to suppress the warning
