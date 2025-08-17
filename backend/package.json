@@ -4,11 +4,14 @@
   "description": "Backend for Task Manager App",
   "main": "server.js",
   "scripts": {
-    "test": "mocha",
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "prod": "node server.js"
+    "prod": "node server.js",
+    "test": "mocha"
   },
+  "keywords": [],
+  "author": "Task Manager Team",
+  "license": "ISC",
   "dependencies": {
     "bcrypt": "^5.0.1",
     "chai": "^4.5.0",
@@ -22,10 +25,9 @@
   },
   "devDependencies": {
     "esm": "^3.2.25",
-    "mocha": "^11.0.1",
+    "mocha": "^10.8.2",
     "nodemon": "^2.0.15",
-    "sinon": "^19.0.5"
-  },
-  "author": "Task Manager Team",
-  "license": "ISC"
+    "sinon": "^19.0.5",
+    "supertest": "^6.3.4"
+  }
 }
