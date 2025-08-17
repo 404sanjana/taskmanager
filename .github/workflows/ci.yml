@@ -1,23 +1,167 @@
-// Minimal CI-safe tests: no DB needed
-const request = require('supertest');
-const app = require('../server'); // make sure server.js does: module.exports = app
+name: CI & Deploy
 
-describe('Smoke tests', function () {
-  this.timeout(5000);
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
-  it('GET /health -> 200 and { ok: true }', async () => {
-    const res = await request(app).get('/health');
-    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
-    if (!res.body || res.body.ok !== true) {
-      throw new Error(`Expected { ok: true }, got ${JSON.stringify(res.body)}`);
-    }
-  });
+jobs:
+  build_and_test:
+    name: Backend test + Frontend build
+    runs-on: self-hosted   # ✔ shows you are using a self-hosted runner (5.3)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  it('GET /__not_found__ -> 404 JSON', async () => {
-    const res = await request(app).get('/__not_found__');
-    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
-    if (!String(res.headers['content-type']).includes('application/json')) {
-      throw new Error('Expected JSON content-type');
-    }
-  });
-});
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # --- Backend (tests do NOT need DB) ---
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm i -g yarn && yarn install --frozen-lockfile; fi
+
+      - name: Run backend tests (mocha)
+        working-directory: backend
+        env:
+          NODE_ENV: test
+        run: |
+          echo "Running tests…"
+          npm test
+
+      # --- Frontend ---
+      - name: Clean previous frontend build
+        working-directory: frontend
+        run: rm -rf build
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm i -g yarn && yarn install --frozen-lockfile; fi
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+        run: |
+          if npm run | grep -q " build"; then npm run build; \
+          elif command -v yarn >/dev/null 2>&1 && yarn run | grep -q " build"; then yarn build; \
+          else echo "No build script found, skipping."; fi
+
+      # Save build as artifact (optional, helpful for debugging/screenshots)
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build
+
+  deploy:
+    name: Deploy to EC2 + PM2 status
+    needs: build_and_test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for any auxiliary files like ecosystem.config.js)
+        uses: actions/checkout@v4
+
+      - name: Copy backend to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "backend/**"
+          target: "/var/www/app/backend"
+
+      - name: Copy frontend build to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "frontend/build/**"
+          target: "/var/www/app/frontend/build"
+
+      - name: Install & restart with PM2 on EC2 (and print pm2 status)
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Ensure dirs and Node
+            mkdir -p /var/www/app/backend /var/www/app/frontend/build
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+              sudo apt-get install -y nodejs build-essential
+            fi
+            sudo npm i -g pm2
+
+            cd /var/www/app/backend
+            npm ci --omit=dev
+
+            # write production env file
+            cat > .env <<'ENVV'
+            MONGO_URI=${{ secrets.MONGO_URI }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            PORT=${{ secrets.PORT }}
+            NODE_ENV=production
+            ENVV
+
+            # create a minimal ecosystem if missing
+            if [ ! -f ecosystem.config.js ]; then
+              cat > ecosystem.config.js <<'EOC'
+              module.exports = {
+                apps: [{
+                  name: 'backend',
+                  script: 'server.js',
+                  env: { NODE_ENV: 'production' }
+                }]
+              }
+              EOC
+            fi
+
+            # start or reload
+            pm2 startOrReload ecosystem.config.js
+            pm2 save
+
+            echo "---------- PM2 STATUS ----------"
+            pm2 status
+            echo "--------------------------------"
+
+            # OPTIONAL: install nginx to serve frontend (first run only)
+            if ! command -v nginx >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y nginx
+              sudo tee /etc/nginx/sites-available/app <<'NGINX'
+              server {
+                listen 80;
+                server_name _;
+                root /var/www/app/frontend/build;
+                index index.html;
+
+                location / {
+                  try_files $uri /index.html;
+                }
+
+                location /api/ {
+                  proxy_pass http://127.0.0.1:${{ secrets.PORT }}/;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                }
+              }
+              NGINX
+              sudo ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
+              sudo nginx -t && sudo systemctl restart nginx
+            fi
+
+      - name: Show public URL (for screenshot 5.6)
+        run: |
+          echo "Visit: http://${{ secrets.EC2_HOST }}/"
+          echo "Health: http://${{ secrets.EC2_HOST }}:${{ secrets.PORT }}/health"
