@@ -13,6 +13,9 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/transactions', require('./routes/transactionRoutes'));
+app.use('/api/budgets', require('./routes/budgetRoutes'));
+app.use('/api/reports', require('./routes/reportRoutes'));
 
 // Export the app object for testing
 if (require.main === module) {
