@@ -17,7 +17,7 @@ app.use('/api/transactions', require('./routes/transactionRoutes'));
 app.use('/api/budgets', require('./routes/budgetRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 
-// Export the app object for testing.
+// Export the app object for testing...
 if (require.main === module) {
     connectDB();
     // If the file is run directly, start the server
