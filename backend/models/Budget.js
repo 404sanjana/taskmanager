@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// One document per user/category/month
+// One document per user/category/month.
 const budgetSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
