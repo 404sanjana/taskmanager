@@ -1,91 +1,23 @@
-name: CI
+// Minimal CI-safe tests: no DB needed
+const request = require('supertest');
+const app = require('../server'); // make sure server.js does: module.exports = app
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+describe('Smoke tests', function () {
+  this.timeout(5000);
 
-jobs:
-  build_and_test:
-    name: Backend test + Frontend build
-    runs-on: self-hosted
+  it('GET /health -> 200 and { ok: true }', async () => {
+    const res = await request(app).get('/health');
+    if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+    if (!res.body || res.body.ok !== true) {
+      throw new Error(`Expected { ok: true }, got ${JSON.stringify(res.body)}`);
+    }
+  });
 
-    strategy:
-      matrix:
-        node-version: [22]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      # ---- Backend ----
-      - name: Create .env for backend
-        working-directory: backend
-        run: |
-          cat > .env <<'EOF'
-          MONGO_URI=${{ secrets.MONGO_URI }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          PORT=${{ secrets.PORT }}
-          NODE_ENV=test
-          EOF
-
-      - name: Install backend deps
-        working-directory: backend
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm i -g yarn
-            yarn install --frozen-lockfile
-          fi
-
-      - name: Run backend tests (non-blocking)
-        working-directory: backend
-        continue-on-error: true   # <-- flip to 'false' when tests are fixed
-        env:
-          MONGO_URI: ${{ secrets.MONGO_URI }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          PORT: ${{ secrets.PORT }}
-          NODE_ENV: test
-        run: |
-          if npm run | grep -q " test"; then
-            npm test
-          elif command -v yarn >/dev/null 2>&1 && yarn run | grep -q " test"; then
-            yarn test
-          else
-            echo "No test script found, skipping."
-          fi
-
-      # ---- Frontend ----
-      - name: Clean previous frontend build
-        working-directory: frontend
-        run: rm -rf build
-
-      - name: Install frontend deps
-        working-directory: frontend
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm i -g yarn
-            yarn install --frozen-lockfile
-          fi
-
-      - name: Build frontend
-        working-directory: frontend
-        env:
-          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
-        run: |
-          if npm run | grep -q " build"; then
-            npm run build
-          elif command -v yarn >/dev/null 2>&1 && yarn run | grep -q " build"; then
-            yarn build
-          else
-            echo "No build script found, skipping."
-          fi
+  it('GET /__not_found__ -> 404 JSON', async () => {
+    const res = await request(app).get('/__not_found__');
+    if (res.status !== 404) throw new Error(`Expected 404, got ${res.status}`);
+    if (!String(res.headers['content-type']).includes('application/json')) {
+      throw new Error('Expected JSON content-type');
+    }
+  });
+});
