@@ -1,12 +1,21 @@
-const router = require('express').Router();
-const auth = require('../middleware/authMiddleware');
-const ctrl = require('../controllers/transactionController');
+const express = require('express');
+const router = express.Router();
 
-router.use(auth); // all below require auth
+const auth = require('../middleware/auth'); // if you have auth; otherwise remove
 
-router.post('/', ctrl.addTransaction);
-router.get('/', ctrl.getTransactions);
-router.patch('/:id', ctrl.updateTransaction);
-router.delete('/:id', ctrl.deleteTransaction);
+const {
+  createTransaction,
+  getTransactions,
+  getTransaction,
+  updateTransaction,
+  deleteTransaction,
+} = require('../controllers/transactionController');
+
+// Each controller is used on a specific HTTP verb/path — NOT with router.use
+router.get('/', auth, getTransactions);         // GET /api/transactions
+router.get('/:id', auth, getTransaction);       // GET /api/transactions/:id
+router.post('/', auth, createTransaction);      // POST /api/transactions
+router.put('/:id', auth, updateTransaction);    // PUT /api/transactions/:id
+router.delete('/:id', auth, deleteTransaction); // DELETE /api/transactions/:id
 
 module.exports = router;

@@ -27,3 +27,12 @@ if (require.main === module) {
 
 
 module.exports = app
+const request = require('supertest');
+const app = require('../server'); // gets the exported app
+
+describe('transactions', () => {
+  it('health', async () => {
+    const res = await request(app).get('/health'); // if you have a health route
+    // expect(res.status).to.equal(200)
+  });
+});
